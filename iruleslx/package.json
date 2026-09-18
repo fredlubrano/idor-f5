@@ -1,0 +1,10 @@
+﻿{
+  "name": "ai_enrich",
+  "version": "0.1.0",
+  "private": true,
+  "description": "iRulesLX plugin: gpt-4o-mini enrich for BIG-IP Malicious User",
+  "main": "ai_enrich/index.js",
+  "engines": {
+    "node": ">=14"
+  }
+}

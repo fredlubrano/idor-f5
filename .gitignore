@@ -1,0 +1,11 @@
+﻿# Ignore secrets and local render output
+.env
+*.pem
+*.key
+/tmp/
+/build/
+*.rendered.tcl
+__pycache__/
+.pytest_cache/
+node_modules/
+.DS_Store
