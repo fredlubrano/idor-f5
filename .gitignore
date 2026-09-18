@@ -9,3 +9,10 @@ __pycache__/
 .pytest_cache/
 node_modules/
 .DS_Store
+
+# ML datasets / artifacts (keep .gitkeep)
+ml/data/*.jsonl
+ml/artifacts/*
+!ml/artifacts/.gitkeep
+!ml/data/.gitkeep
+*.joblib

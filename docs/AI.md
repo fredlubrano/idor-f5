@@ -106,3 +106,7 @@ Traffic continues under the iRule-only score.
 MVP implements: `enrich`, fail-open, `hash_ids`, shadow. Other flags are present/documented for progressive enablement.
 
 See `docs/ASPIRATION.md` for the authenticated dump scenario and `docs/WAF.md` for why WAF alone is not enough.
+
+## Custom Hugging Face model
+
+To train a model that fits this exact feature contract (not a generic log classifier), follow **[HUGGINGFACE.md](HUGGINGFACE.md)** and the tools under `ml/` (`synthesize_dataset.py`, `train_classifier.py`, `serve_stub.py`).

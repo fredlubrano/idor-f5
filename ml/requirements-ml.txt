@@ -1,0 +1,12 @@
+# Optional ML / Hugging Face training deps (not required for iRule deploy)
+scikit-learn>=1.3
+joblib>=1.3
+numpy>=1.24
+# transformers path (optional):
+# transformers>=4.40
+# datasets>=2.18
+# accelerate>=0.28
+# torch  # install matching your platform
+# serve stub:
+# fastapi>=0.110
+# uvicorn>=0.27
