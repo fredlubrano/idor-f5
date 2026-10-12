@@ -1,5 +1,5 @@
-﻿# malicious_user.tcl
-# BIG-IP Malicious User — scoring + IDOR counters + cooling-off + mitigation
+# malicious_user.tcl
+# BIG-IP Malicious User - scoring + IDOR counters + cooling-off + mitigation
 # Placeholders like POINTS_FORBIDDEN are filled by scripts/render_irule.py from config/default.yaml
 
 when RULE_INIT {
@@ -66,13 +66,13 @@ proc mu_user_key {} {
                     set parts [split $tok "."]
                     if { [llength $parts] >= 2 } {
                         set payload [lindex $parts 1]
-                        # base64url → base64
+                        # base64url -> base64
                         set payload [string map {- + _ /} $payload]
                         set pad [expr { (4 - [string length $payload] % 4) % 4 }]
                         append payload [string repeat "=" $pad]
                         if { ![catch { b64decode $payload } json] } {
                             set claim $static::mu_jwt_claim
-                            if { [regexp "\"$claim\"\\s*:\\s*\"([^\"]+)\"" $json -> sub] } {
+                            if { [regexp "\"$claim\"\\s*:\\s*\"(\[^\"\]+)\"" $json -> sub] } {
                                 return "sub:$sub"
                             }
                         }
@@ -97,7 +97,7 @@ proc mu_user_key {} {
 }
 
 proc mu_tkey {suffix} {
-    return "${static::mu_table_prefix}[mu_user_key]:${suffix}"
+    return "${static::mu_table_prefix}[call mu_user_key]:${suffix}"
 }
 
 proc mu_now {} {
@@ -153,39 +153,35 @@ proc mu_incr {key ttl} {
     return $n
 }
 
-proc mu_is_login_path {} {
-    set mu_path [URI::path [HTTP::uri]]
+proc mu_is_login_path {mu_path} {
     set mu_is_login 0
 {{LOGIN_PATH_MATCH_BODY}}
     return $mu_is_login
 }
 
-proc mu_is_object_path {} {
-    set path [URI::path [HTTP::uri]]
+proc mu_is_object_path {path} {
 {{OBJECT_PATH_MATCH_BODY}}
     return 0
 }
 
-proc mu_extract_object_id {} {
-    set path [URI::path [HTTP::uri]]
+proc mu_extract_object_id {path} {
     if { [regexp {/([^/]+)$} $path -> id] } {
         return $id
     }
     return ""
 }
 
-proc mu_normalize_template {} {
-    set path [URI::path [HTTP::uri]]
+proc mu_normalize_template {path} {
     regsub {/\d+$} $path {/{id}} path
     regsub {/[0-9a-fA-F-]{8,}$} $path {/{id}} path
     return $path
 }
 
 proc mu_apply_cooling {} {
-    set last_abuse [mu_table_get [mu_tkey last_abuse] 0]
-    set level [mu_table_get [mu_tkey level] "none"]
-    set score [mu_table_get [mu_tkey score] 0]
-    set now [mu_now]
+    set last_abuse [call mu_table_get [call mu_tkey last_abuse] 0]
+    set level [call mu_table_get [call mu_tkey level] "none"]
+    set score [call mu_table_get [call mu_tkey score] 0]
+    set now [call mu_now]
 
     if { $last_abuse == 0 || $level eq "none" } {
         return [list $score $level]
@@ -197,10 +193,10 @@ proc mu_apply_cooling {} {
     }
 
     set steps [expr { int($idle / $static::mu_cooling) }]
-    set rank [mu_level_rank $level]
+    set rank [call mu_level_rank $level]
     set rank [expr { $rank - $steps }]
     if { $rank < 0 } { set rank 0 }
-    set level [mu_rank_to_level $rank]
+    set level [call mu_rank_to_level $rank]
 
     switch -- $level {
         high { set score $static::mu_thresh_high }
@@ -209,20 +205,20 @@ proc mu_apply_cooling {} {
         default { set score 0 }
     }
 
-    mu_table_set [mu_tkey score] $score $static::mu_score_ttl
-    mu_table_set [mu_tkey level] $level $static::mu_score_ttl
-    mu_table_set [mu_tkey last_abuse] [expr { $last_abuse + ($steps * $static::mu_cooling) }] $static::mu_score_ttl
+    call mu_table_set [call mu_tkey score] $score $static::mu_score_ttl
+    call mu_table_set [call mu_tkey level] $level $static::mu_score_ttl
+    call mu_table_set [call mu_tkey last_abuse] [expr { $last_abuse + ($steps * $static::mu_cooling) }] $static::mu_score_ttl
     return [list $score $level]
 }
 
 proc mu_add_points {pts reason} {
-    set score [mu_table_get [mu_tkey score] 0]
-    set score [mu_clamp_score [expr { $score + $pts }]]
-    set level [mu_level_from_score $score]
-    mu_table_set [mu_tkey score] $score $static::mu_score_ttl
-    mu_table_set [mu_tkey level] $level $static::mu_score_ttl
-    mu_table_set [mu_tkey last_abuse] [mu_now] $static::mu_score_ttl
-    mu_table_set [mu_tkey last_reason] $reason $static::mu_score_ttl
+    set score [call mu_table_get [call mu_tkey score] 0]
+    set score [call mu_clamp_score [expr { $score + $pts }]]
+    set level [call mu_level_from_score $score]
+    call mu_table_set [call mu_tkey score] $score $static::mu_score_ttl
+    call mu_table_set [call mu_tkey level] $level $static::mu_score_ttl
+    call mu_table_set [call mu_tkey last_abuse] [call mu_now] $static::mu_score_ttl
+    call mu_table_set [call mu_tkey last_reason] $reason $static::mu_score_ttl
     return [list $score $level]
 }
 
@@ -234,77 +230,77 @@ proc mu_norm {value cap} {
     return $n
 }
 
-proc mu_idor_track_request {} {
-    if { ![mu_is_object_path] } { return }
+proc mu_idor_track_request {path} {
+    if { ![call mu_is_object_path $path] } { return }
 
-    set id [mu_extract_object_id]
-    set tmpl [mu_normalize_template]
+    set id [call mu_extract_object_id $path]
+    set tmpl [call mu_normalize_template $path]
 
-    mu_incr [mu_tkey idor_req] $static::mu_window
+    call mu_incr [call mu_tkey idor_req] $static::mu_window
 
     if { $id ne "" } {
-        set idkey [mu_tkey "oid:$id"]
+        set idkey [call mu_tkey "oid:$id"]
         if { [table lookup $idkey] eq "" } {
-            mu_table_set $idkey 1 $static::mu_window
-            mu_incr [mu_tkey idor_distinct] $static::mu_window
+            call mu_table_set $idkey 1 $static::mu_window
+            call mu_incr [call mu_tkey idor_distinct] $static::mu_window
         }
         if { [string is integer -strict $id] } {
-            set last [mu_table_get [mu_tkey last_oid] ""]
+            set last [call mu_table_get [call mu_tkey last_oid] ""]
             if { $last ne "" && [string is integer -strict $last] } {
                 set delta [expr { abs($id - $last) }]
                 if { $delta == 1 } {
-                    mu_incr [mu_tkey idor_seq_hits] $static::mu_window
+                    call mu_incr [call mu_tkey idor_seq_hits] $static::mu_window
                 }
-                mu_incr [mu_tkey idor_seq_total] $static::mu_window
+                call mu_incr [call mu_tkey idor_seq_total] $static::mu_window
             }
-            mu_table_set [mu_tkey last_oid] $id $static::mu_window
+            call mu_table_set [call mu_tkey last_oid] $id $static::mu_window
         }
     }
 
     if { $tmpl ne "" } {
-        set tkey [mu_tkey "tmpl:[string map {/ _ \{ _ \} _} $tmpl]"]
-        mu_incr $tkey $static::mu_window
-        mu_table_set [mu_tkey last_tmpl] $tmpl $static::mu_window
+        set tkey [call mu_tkey "tmpl:[string map {/ _ \{ _ \} _} $tmpl]"]
+        call mu_incr $tkey $static::mu_window
+        call mu_table_set [call mu_tkey last_tmpl] $tmpl $static::mu_window
     }
 }
 
-proc mu_idor_track_response {status bytes} {
-    if { ![mu_is_object_path] } {
-        return [list [mu_table_get [mu_tkey score] 0] [mu_table_get [mu_tkey level] "none"]]
+proc mu_idor_track_response {status bytes is_object} {
+    if { !$is_object } {
+        return [list [call mu_table_get [call mu_tkey score] 0] [call mu_table_get [call mu_tkey level] "none"]]
     }
 
-    mu_incr [mu_tkey idor_resp] $static::mu_window
+    call mu_incr [call mu_tkey idor_resp] $static::mu_window
     if { $status == 200 } {
-        mu_incr [mu_tkey idor_ok] $static::mu_window
+        call mu_incr [call mu_tkey idor_ok] $static::mu_window
     } elseif { $status == 403 || $status == 404 } {
-        mu_incr [mu_tkey idor_forbid] $static::mu_window
+        call mu_incr [call mu_tkey idor_forbid] $static::mu_window
     }
 
     # Optional status sequence ring (last few codes) for AI
     if { $static::mu_ai_status_seq } {
-        set seq [mu_table_get [mu_tkey status_seq] ""]
+        set seq [call mu_table_get [call mu_tkey status_seq] ""]
         append seq "$status,"
         set parts [split $seq ","]
         if { [llength $parts] > 12 } {
             set parts [lrange $parts end-11 end]
             set seq [join $parts ","]
         }
-        mu_table_set [mu_tkey status_seq] $seq $static::mu_window
+        call mu_table_set [call mu_tkey status_seq] $seq $static::mu_window
     }
 
     if { $bytes > 0 } {
-        set sum [expr { [mu_table_get [mu_tkey idor_bytes] 0] + $bytes }]
-        mu_table_set [mu_tkey idor_bytes] $sum $static::mu_window
+        set sum [expr { [call mu_table_get [call mu_tkey idor_bytes] 0] + $bytes }]
+        call mu_table_set [call mu_tkey idor_bytes] $sum $static::mu_window
     }
 
-    set distinct [mu_table_get [mu_tkey idor_distinct] 0]
-    set reqs [mu_table_get [mu_tkey idor_req] 0]
-    set resp [mu_table_get [mu_tkey idor_resp] 0]
-    set ok [mu_table_get [mu_tkey idor_ok] 0]
-    set forbid [mu_table_get [mu_tkey idor_forbid] 0]
-    set seq_hits [mu_table_get [mu_tkey idor_seq_hits] 0]
-    set seq_total [mu_table_get [mu_tkey idor_seq_total] 0]
-    set bytesum [mu_table_get [mu_tkey idor_bytes] 0]
+    set distinct [call mu_table_get [call mu_tkey idor_distinct] 0]
+    set reqs [call mu_table_get [call mu_tkey idor_req] 0]
+    set resp [call mu_table_get [call mu_tkey idor_resp] 0]
+    set ok [call mu_table_get [call mu_tkey idor_ok] 0]
+    set forbid [call mu_table_get [call mu_tkey idor_forbid] 0]
+    set seq_hits [call mu_table_get [call mu_tkey idor_seq_hits] 0]
+    set seq_total [call mu_table_get [call mu_tkey idor_seq_total] 0]
+    set bytesum [call mu_table_get [call mu_tkey idor_bytes] 0]
 
     set seq_ratio 0.0
     if { $seq_total > 0 } {
@@ -320,10 +316,10 @@ proc mu_idor_track_response {status bytes} {
     }
 
     set focus 0.0
-    set last_tmpl [mu_table_get [mu_tkey last_tmpl] ""]
+    set last_tmpl [call mu_table_get [call mu_tkey last_tmpl] ""]
     if { $last_tmpl ne "" && $reqs > 0 } {
-        set tkey [mu_tkey "tmpl:[string map {/ _ \{ _ \} _} $last_tmpl]"]
-        set tcount [mu_table_get $tkey 0]
+        set tkey [call mu_tkey "tmpl:[string map {/ _ \{ _ \} _} $last_tmpl]"]
+        set tcount [call mu_table_get $tkey 0]
         set focus [expr { double($tcount) / double($reqs) }]
     }
 
@@ -332,9 +328,9 @@ proc mu_idor_track_response {status bytes} {
         set rate_cap [expr { int($static::mu_window / 3) }]
         if { $rate_cap < 1 } { set rate_cap 1 }
     }
-    set rate_norm [mu_norm $reqs $rate_cap]
-    set n_distinct [mu_norm $distinct $static::mu_idor_distinct_n]
-    set n_bytes [mu_norm $bytesum $static::mu_idor_bytes_n]
+    set rate_norm [call mu_norm $reqs $rate_cap]
+    set n_distinct [call mu_norm $distinct $static::mu_idor_distinct_n]
+    set n_bytes [call mu_norm $bytesum $static::mu_idor_bytes_n]
     set aspiration [expr {
         $static::mu_w_distinct * $n_distinct +
         $static::mu_w_rate * $rate_norm +
@@ -361,7 +357,7 @@ proc mu_idor_track_response {status bytes} {
     if { $distinct >= $static::mu_idor_success_ids && $ok_ratio >= 0.7 } {
         set added [expr { $added + $static::mu_points_success_enum }]
         append reason "success_enum;"
-        mu_table_set [mu_tkey aspiration] 1 $static::mu_window
+        call mu_table_set [call mu_tkey aspiration] 1 $static::mu_window
     }
     if { $focus >= $static::mu_idor_focus && $reqs >= 10 } {
         set added [expr { $added + $static::mu_points_template_focus }]
@@ -372,32 +368,32 @@ proc mu_idor_track_response {status bytes} {
         append reason "bytes;"
     }
     if { $aspiration >= 0.55 } {
-        mu_table_set [mu_tkey aspiration] 1 $static::mu_window
+        call mu_table_set [call mu_tkey aspiration] 1 $static::mu_window
         append reason "aspiration;"
     }
 
-    mu_table_set [mu_tkey feat_distinct] $distinct $static::mu_score_ttl
-    mu_table_set [mu_tkey feat_seq_ratio] $seq_ratio $static::mu_score_ttl
-    mu_table_set [mu_tkey feat_forbid_ratio] $forbid_ratio $static::mu_score_ttl
-    mu_table_set [mu_tkey feat_ok_ratio] $ok_ratio $static::mu_score_ttl
-    mu_table_set [mu_tkey feat_reqs] $reqs $static::mu_score_ttl
-    mu_table_set [mu_tkey feat_bytes] $bytesum $static::mu_score_ttl
-    mu_table_set [mu_tkey feat_focus] $focus $static::mu_score_ttl
-    mu_table_set [mu_tkey feat_aspiration] $aspiration $static::mu_score_ttl
-    mu_table_set [mu_tkey feat_template] $last_tmpl $static::mu_score_ttl
+    call mu_table_set [call mu_tkey feat_distinct] $distinct $static::mu_score_ttl
+    call mu_table_set [call mu_tkey feat_seq_ratio] $seq_ratio $static::mu_score_ttl
+    call mu_table_set [call mu_tkey feat_forbid_ratio] $forbid_ratio $static::mu_score_ttl
+    call mu_table_set [call mu_tkey feat_ok_ratio] $ok_ratio $static::mu_score_ttl
+    call mu_table_set [call mu_tkey feat_reqs] $reqs $static::mu_score_ttl
+    call mu_table_set [call mu_tkey feat_bytes] $bytesum $static::mu_score_ttl
+    call mu_table_set [call mu_tkey feat_focus] $focus $static::mu_score_ttl
+    call mu_table_set [call mu_tkey feat_aspiration] $aspiration $static::mu_score_ttl
+    call mu_table_set [call mu_tkey feat_template] $last_tmpl $static::mu_score_ttl
 
     if { $added > 0 } {
-        return [mu_add_points $added "idor:$reason"]
+        return [call mu_add_points $added "idor:$reason"]
     }
-    return [list [mu_table_get [mu_tkey score] 0] [mu_table_get [mu_tkey level] "none"]]
+    return [list [call mu_table_get [call mu_tkey score] 0] [call mu_table_get [call mu_tkey level] "none"]]
 }
 
 proc mu_ai_should_call {score level} {
     if { !$static::mu_ai_enabled } { return 0 }
     if { $static::mu_ai_skip_high && $level eq "high" } { return 0 }
 
-    set ai_ts [mu_table_get [mu_tkey ai_ts] 0]
-    set now [mu_now]
+    set ai_ts [call mu_table_get [call mu_tkey ai_ts] 0]
+    set now [call mu_now]
     if { $ai_ts > 0 && [expr { $now - $ai_ts }] < 60 } {
         return 0
     }
@@ -414,19 +410,19 @@ proc mu_ai_should_call {score level} {
 }
 
 proc mu_ai_apply_result {action} {
-    set score [mu_table_get [mu_tkey score] 0]
-    set level [mu_table_get [mu_tkey level] "none"]
+    set score [call mu_table_get [call mu_tkey score] 0]
+    set level [call mu_table_get [call mu_tkey level] "none"]
 
     if { $static::mu_ai_shadow } {
-        mu_table_set [mu_tkey ai_shadow_action] $action $static::mu_score_ttl
+        call mu_table_set [call mu_tkey ai_shadow_action] $action $static::mu_score_ttl
         return [list $score $level]
     }
 
     switch -- $action {
         dismiss {
-            set rank [expr { [mu_level_rank $level] - 1 }]
+            set rank [expr { [call mu_level_rank $level] - 1 }]
             if { $rank < 0 } { set rank 0 }
-            set level [mu_rank_to_level $rank]
+            set level [call mu_rank_to_level $rank]
             switch -- $level {
                 high { set score $static::mu_thresh_high }
                 medium { set score $static::mu_thresh_med }
@@ -435,9 +431,9 @@ proc mu_ai_apply_result {action} {
             }
         }
         boost {
-            set rank [expr { [mu_level_rank $level] + 1 }]
+            set rank [expr { [call mu_level_rank $level] + 1 }]
             if { $rank > 3 } { set rank 3 }
-            set level [mu_rank_to_level $rank]
+            set level [call mu_rank_to_level $rank]
             switch -- $level {
                 high { set score $static::mu_thresh_high }
                 medium { set score $static::mu_thresh_med }
@@ -450,41 +446,43 @@ proc mu_ai_apply_result {action} {
         }
     }
 
-    mu_table_set [mu_tkey score] $score $static::mu_score_ttl
-    mu_table_set [mu_tkey level] $level $static::mu_score_ttl
-    mu_table_set [mu_tkey ai_action] $action $static::mu_score_ttl
+    call mu_table_set [call mu_tkey score] $score $static::mu_score_ttl
+    call mu_table_set [call mu_tkey level] $level $static::mu_score_ttl
+    call mu_table_set [call mu_tkey ai_action] $action $static::mu_score_ttl
     return [list $score $level]
 }
 
 proc mu_build_ai_payload {} {
-    set user [mu_user_key]
+    set user [call mu_user_key]
     set user_esc [string map {"\\" "\\\\" "\"" "\\\""} $user]
-    set tmpl [mu_table_get [mu_tkey feat_template] ""]
+    set tmpl [call mu_table_get [call mu_tkey feat_template] ""]
     set tmpl_esc [string map {"\\" "\\\\" "\"" "\\\""} $tmpl]
-    set status_seq [mu_table_get [mu_tkey status_seq] ""]
+    set status_seq [call mu_table_get [call mu_tkey status_seq] ""]
     set status_esc [string map {"\\" "\\\\" "\"" "\\\""} $status_seq]
     set auth 0
     if { [HTTP::header exists Authorization] || [HTTP::cookie names] ne "" } {
         set auth 1
     }
 
-    set json "{"
+    set lb [format %c 123]
+    set rb [format %c 125]
+    set json $lb
     append json "\"user_id\":\"$user_esc\","
-    append json "\"score\":[mu_table_get [mu_tkey score] 0],"
-    append json "\"level\":\"[mu_table_get [mu_tkey level] none]\","
+    append json "\"score\":[call mu_table_get [call mu_tkey score] 0],"
+    append json "\"level\":\"[call mu_table_get [call mu_tkey level] none]\","
     append json "\"auth_present\":$auth,"
-    append json "\"features\":{"
-    append json "\"distinct_object_ids\":[mu_table_get [mu_tkey feat_distinct] 0],"
-    append json "\"sequential_ratio\":[mu_table_get [mu_tkey feat_seq_ratio] 0],"
-    append json "\"forbid_ratio\":[mu_table_get [mu_tkey feat_forbid_ratio] 0],"
-    append json "\"ok_ratio\":[mu_table_get [mu_tkey feat_ok_ratio] 0],"
-    append json "\"req_count\":[mu_table_get [mu_tkey feat_reqs] 0],"
-    append json "\"response_bytes_sum\":[mu_table_get [mu_tkey feat_bytes] 0],"
-    append json "\"template_focus\":[mu_table_get [mu_tkey feat_focus] 0],"
-    append json "\"aspiration_score\":[mu_table_get [mu_tkey feat_aspiration] 0],"
+    append json "\"features\":$lb"
+    append json "\"distinct_object_ids\":[call mu_table_get [call mu_tkey feat_distinct] 0],"
+    append json "\"sequential_ratio\":[call mu_table_get [call mu_tkey feat_seq_ratio] 0],"
+    append json "\"forbid_ratio\":[call mu_table_get [call mu_tkey feat_forbid_ratio] 0],"
+    append json "\"ok_ratio\":[call mu_table_get [call mu_tkey feat_ok_ratio] 0],"
+    append json "\"req_count\":[call mu_table_get [call mu_tkey feat_reqs] 0],"
+    append json "\"response_bytes_sum\":[call mu_table_get [call mu_tkey feat_bytes] 0],"
+    append json "\"template_focus\":[call mu_table_get [call mu_tkey feat_focus] 0],"
+    append json "\"aspiration_score\":[call mu_table_get [call mu_tkey feat_aspiration] 0],"
     append json "\"path_template\":\"$tmpl_esc\","
     append json "\"status_seq\":\"$status_esc\""
-    append json "}}"
+    append json "$rb$rb"
     return $json
 }
 
@@ -492,66 +490,77 @@ proc mu_js_challenge {hard} {
     set delay 0
     if { $hard } { set delay 1500 }
     set token [format %08x [expr { int(rand() * 0xffffffff) }]]
-    mu_table_set [mu_tkey challenge] $token 300
+    call mu_table_set [call mu_tkey challenge] $token 300
     set cname $static::mu_chal_cookie
 
-    set html "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Checking your browser</title>"
-    append html "<script>(function(){var t='$token';var d=$delay;var c='$cname';"
-    append html "setTimeout(function(){document.cookie=c+'='+t+'; Path=/';location.reload();},d);"
-    append html "})();</script></head><body><p>Verifying your session…</p></body></html>"
+    set lb [format %c 123]
+    set rb [format %c 125]
+    set dq [format %c 34]
+    set html "<!DOCTYPE html><html><head><meta charset=${dq}utf-8${dq}><title>Checking your browser</title>"
+    append html "<script>(function()${lb}var t='$token';var d=$delay;var c='$cname';"
+    append html "setTimeout(function()${lb}document.cookie=c+'='+t+'; Path=/';location.reload();${rb},d);"
+    append html "${rb})();</script></head><body><p>Verifying your session...</p></body></html>"
 
     HTTP::respond 503 content $html Content-Type "text/html; charset=utf-8" Retry-After 2 noserver
 }
 
 proc mu_challenge_passed {} {
-    set expect [mu_table_get [mu_tkey challenge] ""]
+    set expect [call mu_table_get [call mu_tkey challenge] ""]
     if { $expect eq "" } { return 0 }
     set cname $static::mu_chal_cookie
     if { [HTTP::cookie exists $cname] && [HTTP::cookie value $cname] eq $expect } {
-        table delete [mu_tkey challenge]
+        table delete [call mu_tkey challenge]
         return 1
     }
     return 0
 }
 
 proc mu_apply_mitigation {level} {
+    upvar 1 mu_mit_action mu_mit_action
+    if { ![info exists mu_mit_action] } { set mu_mit_action "-" }
     if { $static::mu_mit_shadow || $static::mu_ai_shadow } {
-        log local0. "mu shadow mitigate level=$level score=[mu_table_get [mu_tkey score] 0]"
+        log local0. "mu shadow mitigate level=$level score=[call mu_table_get [call mu_tkey score] 0]"
         return 0
     }
-    set aspiration [mu_table_get [mu_tkey aspiration] 0]
-    if { [mu_table_get [mu_tkey blocked] 0] } {
+    set aspiration [call mu_table_get [call mu_tkey aspiration] 0]
+    if { [call mu_table_get [call mu_tkey blocked] 0] } {
+        set mu_mit_action "block"
         reject
         return 1
     }
-    if { [mu_challenge_passed] } { return 0 }
+    if { [call mu_challenge_passed] } { return 0 }
 
     switch -- $level {
         high {
             if { $aspiration } {
-                set rl [mu_incr [mu_tkey rl_sec] 1]
+                set rl [call mu_incr [call mu_tkey rl_sec] 1]
                 if { $rl > $static::mu_rate_limit_rps } {
-                    HTTP::respond 429 content "Too Many Requests" Content-Type "text/plain" Retry-After 5 noserver
+                    set mu_mit_action "rate"
+                    HTTP::respond 429 content "Too Many Requests" noserver
                     return 1
                 }
-                set hits [mu_incr [mu_tkey aspir_block_hits] 60]
+                set hits [call mu_incr [call mu_tkey aspir_block_hits] 60]
                 if { $hits > 20 } {
-                    mu_table_set [mu_tkey blocked] 1 $static::mu_block_ttl
+                    call mu_table_set [call mu_tkey blocked] 1 $static::mu_block_ttl
+                    set mu_mit_action "block"
                     reject
                     return 1
                 }
             } else {
-                mu_table_set [mu_tkey blocked] 1 $static::mu_block_ttl
+                call mu_table_set [call mu_tkey blocked] 1 $static::mu_block_ttl
+                set mu_mit_action "block"
                 reject
                 return 1
             }
         }
         medium {
-            mu_js_challenge 1
+            set mu_mit_action "challenge"
+            call mu_js_challenge 1
             return 1
         }
         low {
-            mu_js_challenge 0
+            set mu_mit_action "challenge"
+            call mu_js_challenge 0
             return 1
         }
         default { return 0 }
@@ -560,54 +569,83 @@ proc mu_apply_mitigation {level} {
 }
 
 when HTTP_REQUEST {
-    set cooled [mu_apply_cooling]
+    set mu_path [HTTP::path]
+    set mu_is_object [call mu_is_object_path $mu_path]
+    set mu_is_login [call mu_is_login_path $mu_path]
+    set mu_log_req "[HTTP::method] [HTTP::uri]"
+    set mu_log_client [IP::client_addr]
+    set mu_mit_action "-"
+    set mu_idor_logged 0
+
+    set cooled [call mu_apply_cooling]
     set score [lindex $cooled 0]
     set level [lindex $cooled 1]
 
-    set rate [mu_incr [mu_tkey req_rate] $static::mu_window]
-    # ~2 rps average over window → trip (tunable via YAML rate signal)
+    set rate [call mu_incr [call mu_tkey req_rate] $static::mu_window]
+    # ~2 rps average over window -> trip (tunable via YAML rate signal)
     if { $rate > [expr { $static::mu_window * 2 }] } {
-        set r [mu_add_points $static::mu_points_rate "rate_limit"]
+        set r [call mu_add_points $static::mu_points_rate "rate_limit"]
         set score [lindex $r 0]
         set level [lindex $r 1]
     }
 
-    mu_idor_track_request
+    call mu_idor_track_request $mu_path
 
-    set pending [mu_table_get [mu_tkey ai_pending_action] ""]
+    set pending [call mu_table_get [call mu_tkey ai_pending_action] ""]
     if { $pending ne "" } {
-        set r [mu_ai_apply_result $pending]
+        set r [call mu_ai_apply_result $pending]
         set score [lindex $r 0]
         set level [lindex $r 1]
-        table delete [mu_tkey ai_pending_action]
+        table delete [call mu_tkey ai_pending_action]
     }
 
-    if { [mu_apply_mitigation $level] } {
+    if { [call mu_apply_mitigation $level] } {
+        log local0.warn "MU-IDOR-ACT client=$mu_log_client req=\"$mu_log_req\" action=$mu_mit_action level=$level score=$score"
+        set mu_idor_logged 1
         return
     }
+    set mu_log_score $score
+    set mu_log_level $level
 }
 
 when HTTP_RESPONSE {
+    if { [info exists mu_idor_logged] && $mu_idor_logged } {
+        return
+    }
+    if { ![info exists mu_is_login] } {
+        set mu_is_login 0
+    }
+    if { ![info exists mu_is_object] } {
+        set mu_is_object 0
+    }
+    if { ![info exists mu_log_req] } {
+        set mu_log_req "-"
+    }
+    if { ![info exists mu_log_client] } {
+        set mu_log_client "-"
+    }
+
     set status [HTTP::status]
     set bytes 0
     if { [HTTP::header exists Content-Length] } {
         set bytes [HTTP::header Content-Length]
     }
 
-    if { [mu_is_login_path] && ($status == 401 || $status == 403) } {
-        mu_add_points $static::mu_points_failed_login "failed_login"
+    if { $mu_is_login && ($status == 401 || $status == 403) } {
+        call mu_add_points $static::mu_points_failed_login "failed_login"
     }
-    if { $status == 403 && ![mu_is_login_path] } {
-        mu_add_points $static::mu_points_forbidden "forbidden"
+    if { $status == 403 && !$mu_is_login } {
+        call mu_add_points $static::mu_points_forbidden "forbidden"
     }
 
-    set idor [mu_idor_track_response $status $bytes]
+    set idor [call mu_idor_track_response $status $bytes $mu_is_object]
     set score [lindex $idor 0]
     set level [lindex $idor 1]
+    set ai_action "-"
 
-    # AI enrich via iRulesLX — fail-open
-    if { [mu_ai_should_call $score $level] } {
-        set payload [mu_build_ai_payload]
+    # AI enrich via iRulesLX - fail-open
+    if { [call mu_ai_should_call $score $level] } {
+        set payload [call mu_build_ai_payload]
         set ai_action "confirm"
         if { [catch {
             set handle [ILX::init $static::mu_lx_plugin $static::mu_lx_ext]
@@ -619,21 +657,41 @@ when HTTP_RESPONSE {
             }
         } err] } {
             log local0. "mu_ai fail-open: $err"
-            set ai_action "confirm"
+            set ai_action "fail-open"
         }
-        mu_table_set [mu_tkey ai_ts] [mu_now] $static::mu_score_ttl
-        mu_table_set [mu_tkey ai_pending_action] $ai_action $static::mu_score_ttl
-        mu_ai_apply_result $ai_action
+        call mu_table_set [call mu_tkey ai_ts] [call mu_now] $static::mu_score_ttl
+        if { $ai_action ne "fail-open" } {
+            call mu_table_set [call mu_tkey ai_pending_action] $ai_action $static::mu_score_ttl
+            set r [call mu_ai_apply_result $ai_action]
+            set score [lindex $r 0]
+            set level [lindex $r 1]
+        }
     }
+
+    log local0.warn "MU-IDOR client=$mu_log_client req=\"$mu_log_req\" path_kind=$mu_is_object score=$score level=$level status=[HTTP::status] ai=$ai_action"
+    set mu_idor_logged 1
+}
+
+# PRP Reject skips HTTP_RESPONSE (api-protection VS has no LTM access profile).
+# ACCESS_* events need an ACCESS profile and fail verify (01071912). after is cancelled on TCP close.
+when CLIENT_CLOSED {
+    if { [info exists mu_idor_logged] && $mu_idor_logged } { return }
+    if { ![info exists mu_log_req] } { return }
+    if { ![info exists mu_is_object] } { set mu_is_object 0 }
+    if { ![info exists mu_log_client] } { set mu_log_client "-" }
+    if { ![info exists mu_log_score] } { set mu_log_score 0 }
+    if { ![info exists mu_log_level] } { set mu_log_level none }
+    log local0.warn "MU-IDOR client=$mu_log_client req=\"$mu_log_req\" path_kind=$mu_is_object score=$mu_log_score level=$mu_log_level status=403 ai=-"
+    set mu_idor_logged 1
 }
 
 when ASM_REQUEST_DONE {
     if { [catch { ASM::violation count } vcount] } { return }
     if { $vcount > 0 } {
-        mu_add_points $static::mu_points_waf "waf_hit"
+        call mu_add_points $static::mu_points_waf "waf_hit"
     }
 }
 
-when ASM_REQUEST_BLOCKING_DONE {
-    mu_add_points $static::mu_points_forbidden "asm_deny"
+when ASM_REQUEST_BLOCKING {
+    call mu_add_points $static::mu_points_forbidden "asm_deny"
 }

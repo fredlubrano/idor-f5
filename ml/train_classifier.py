@@ -77,12 +77,50 @@ def train_sklearn(train_rows: list[dict], out: Path, eval_rows: list[dict] | Non
         print("confusion_matrix:\n", confusion_matrix(ye, pred))
 
 
+def resolve_torch_device(requested: str) -> str:
+    """Prefer Intel iGPU (XPU). Fail closed when --device xpu is requested."""
+    try:
+        import torch
+    except ImportError as e:
+        raise SystemExit("torch required for --backend transformers\n" + str(e)) from e
+
+    xpu = hasattr(torch, "xpu") and torch.xpu.is_available()
+    cuda = torch.cuda.is_available()
+    if requested == "xpu":
+        if not xpu:
+            raise SystemExit(
+                "Intel XPU/iGPU not available. Install torch from "
+                "https://download.pytorch.org/whl/xpu and pass /dev/dri/renderD128."
+            )
+        name = torch.xpu.get_device_name(0)
+        print(f"torch device → xpu:0 ({name})")
+        return "xpu"
+    if requested == "cuda":
+        if not cuda:
+            raise SystemExit("CUDA not available")
+        print("torch device → cuda")
+        return "cuda"
+    if requested == "cpu":
+        print("torch device → cpu")
+        return "cpu"
+    # auto
+    if xpu:
+        print(f"torch device → xpu:0 ({torch.xpu.get_device_name(0)})")
+        return "xpu"
+    if cuda:
+        print("torch device → cuda")
+        return "cuda"
+    print("torch device → cpu")
+    return "cpu"
+
+
 def train_transformers(
     train_rows: list[dict],
     out: Path,
     model_name: str,
     push_to_hub: str | None,
     epochs: int,
+    device: str,
 ) -> None:
     try:
         from datasets import Dataset
@@ -96,6 +134,8 @@ def train_transformers(
         raise SystemExit(
             "transformers/datasets required for --backend transformers\n" + str(e)
         ) from e
+
+    resolved = resolve_torch_device(device)
 
     texts, labels = [], []
     for r in train_rows:
@@ -120,24 +160,41 @@ def train_transformers(
         label2id=LABEL_TO_ID,
     )
     out.mkdir(parents=True, exist_ok=True)
-    args = TrainingArguments(
+    ta_kwargs = dict(
         output_dir=str(out / "runs"),
         num_train_epochs=epochs,
         per_device_train_batch_size=8,
         per_device_eval_batch_size=8,
-        evaluation_strategy="epoch",
         save_strategy="epoch",
         logging_steps=20,
         load_best_model_at_end=True,
         report_to=[],
+        use_cpu=resolved == "cpu",
+        dataloader_pin_memory=False,
+        dataloader_num_workers=0,
     )
-    trainer = Trainer(
+    # transformers>=4.41 renamed evaluation_strategy → eval_strategy
+    import inspect as _inspect
+
+    ta_params = _inspect.signature(TrainingArguments.__init__).parameters
+    if "eval_strategy" in ta_params:
+        ta_kwargs["eval_strategy"] = "epoch"
+    else:
+        ta_kwargs["evaluation_strategy"] = "epoch"
+    args = TrainingArguments(**ta_kwargs)
+    trainer_kwargs = dict(
         model=model,
         args=args,
         train_dataset=ds["train"],
         eval_dataset=ds["test"],
-        tokenizer=tok,
     )
+    tr_params = _inspect.signature(Trainer.__init__).parameters
+    if "processing_class" in tr_params:
+        trainer_kwargs["processing_class"] = tok
+    else:
+        trainer_kwargs["tokenizer"] = tok
+    trainer = Trainer(**trainer_kwargs)
+    print(f"trainer device → {trainer.args.device}")
     trainer.train()
     trainer.save_model(str(out))
     tok.save_pretrained(str(out))
@@ -158,6 +215,12 @@ def main() -> None:
     ap.add_argument("--push_to_hub", default=None)
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--report", action="store_true")
+    ap.add_argument(
+        "--device",
+        choices=("auto", "xpu", "cuda", "cpu"),
+        default="xpu",
+        help="transformers only; default xpu (Intel iGPU). sklearn stays on CPU.",
+    )
     args = ap.parse_args()
 
     train_rows = load_jsonl(args.train)
@@ -165,7 +228,9 @@ def main() -> None:
     if args.backend == "sklearn":
         train_sklearn(train_rows, args.out, eval_rows, args.report)
     else:
-        train_transformers(train_rows, args.out, args.model, args.push_to_hub, args.epochs)
+        train_transformers(
+            train_rows, args.out, args.model, args.push_to_hub, args.epochs, args.device
+        )
 
 
 if __name__ == "__main__":

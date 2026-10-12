@@ -24,10 +24,10 @@ python ml/serve_stub.py --model ml/artifacts/sklearn_model.joblib
 # POST http://127.0.0.1:8090/v1/classify
 ```
 
-Transformers train (needs more RAM/disk):
+Transformers train (Intel iGPU / XPU by default):
 
 ```bash
-python ml/train_classifier.py --backend transformers \
+python ml/train_classifier.py --backend transformers --device xpu \
   --model distilbert-base-uncased \
   --train ml/data/train.jsonl \
   --out ml/artifacts/idor-aspiration-clf

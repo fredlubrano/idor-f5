@@ -34,3 +34,10 @@ def test_render_fills_placeholders():
     assert 'set static::mu_identity_mode "ip"' in out
     assert "set mu_is_login 1" in out
     assert "regexp" in out
+    assert "when CLIENT_CLOSED" in out
+    assert 'log local0.warn "MU-IDOR client=$mu_log_client' in out
+    assert 'log local0.warn "MU-IDOR-ACT client=$mu_log_client' in out
+    assert "mu_ai fail-open" in out
+    # Logs live in events, not in procs (HTTP::uri in a proc + HTTP_RESPONSE fails attach).
+    before_req = out.split("when HTTP_REQUEST", 1)[0]
+    assert "MU-IDOR" not in before_req

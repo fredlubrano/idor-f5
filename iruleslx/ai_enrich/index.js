@@ -9,9 +9,10 @@
 
 'use strict';
 
+const fs = require('fs');
 const https = require('https');
 const crypto = require('crypto');
-const { URL } = require('url');
+const urlLib = require('url');
 
 const MODEL = process.env.MU_AI_MODEL || 'gpt-4o-mini';
 const ENDPOINT = process.env.MU_AI_ENDPOINT || 'https://api.openai.com/v1/chat/completions';
@@ -173,15 +174,31 @@ function normalizeDecision(obj) {
   };
 }
 
+function loadApiKey() {
+  if (process.env.OPENAI_API_KEY) {
+    return process.env.OPENAI_API_KEY;
+  }
+  if (process.env.MU_OPENAI_API_KEY) {
+    return process.env.MU_OPENAI_API_KEY;
+  }
+  const file = process.env.MU_AI_KEY_FILE ||
+    '/var/ilx/workspaces/Common/ai_enrich/extensions/ai_enrich/openai.key';
+  try {
+    return fs.readFileSync(file, 'utf8').replace(/\s+/g, '');
+  } catch (e) {
+    return '';
+  }
+}
+
 function callOpenAI(userPrompt) {
   return new Promise((resolve, reject) => {
-    const apiKey = process.env.OPENAI_API_KEY || process.env.MU_OPENAI_API_KEY;
+    const apiKey = loadApiKey();
     if (!apiKey) {
       reject(new Error('missing OPENAI_API_KEY'));
       return;
     }
 
-    const url = new URL(ENDPOINT);
+    const url = urlLib.parse(ENDPOINT);
     const body = JSON.stringify({
       model: MODEL,
       temperature: 0,
@@ -197,7 +214,7 @@ function callOpenAI(userPrompt) {
       {
         hostname: url.hostname,
         port: url.port || 443,
-        path: url.pathname + url.search,
+        path: (url.pathname || '/') + (url.search || ''),
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -246,22 +263,21 @@ function callOpenAI(userPrompt) {
  * @param {string|object} rawPayload JSON from iRule
  * @returns {Promise<string>} JSON decision string
  */
-async function enrich(rawPayload) {
+function enrich(rawPayload) {
   const ctx = sanitizeFeatures(rawPayload);
   if (!ctx) {
-    return failOpen('invalid payload');
+    return Promise.resolve(failOpen('invalid payload'));
   }
 
-  try {
-    const content = await callOpenAI(buildUserPrompt(ctx));
+  return callOpenAI(buildUserPrompt(ctx)).then((content) => {
     const parsed = parseModelJson(content);
     if (!parsed) {
       return failOpen('unparseable model output');
     }
     return JSON.stringify(normalizeDecision(parsed));
-  } catch (err) {
+  }).catch((err) => {
     return failOpen(String(err && err.message ? err.message : err));
-  }
+  });
 }
 
 // iRulesLX registration (on BIG-IP). Offline require() still exports helpers.

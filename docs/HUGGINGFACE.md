@@ -74,13 +74,22 @@ Features numériques uniquement ; export ONNX possible ensuite.
 
 ### B — Sequence classification HF (texte sérialisé)
 
+Sur Intel iGPU (XPU), installer le wheel PyTorch XPU — **pas** le wheel CUDA/CPU :
+
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/xpu
+python -c "import torch; print(torch.xpu.is_available(), torch.xpu.get_device_name(0))"
+```
+
 ```bash
 python ml/train_classifier.py --backend transformers \
+  --device xpu \
   --model distilbert-base-uncased \
   --train ml/data/train.jsonl \
-  --out ml/artifacts/idor-aspiration-clf \
-  --push_to_hub fredlubrano/idor-aspiration-clf
+  --out ml/artifacts/idor-aspiration-clf
 ```
+
+`--device xpu` est le défaut pour transformers : le train refuse de tomber silencieusement sur CPU.
 
 Chaque exemple devient une phrase du type :
 
