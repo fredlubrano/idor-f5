@@ -5,6 +5,7 @@
 /tmp/
 /build/
 *.rendered.tcl
+irules/malicious_user.tmsh.conf
 __pycache__/
 .pytest_cache/
 node_modules/

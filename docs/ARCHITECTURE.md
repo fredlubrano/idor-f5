@@ -45,6 +45,19 @@ Typical keys under `session.table_prefix` (default `mu:`):
 4. **Mitigate** according to level (or shadow-log only)  
 5. **Retire** naturally via cooling-off when abuse stops  
 
+## iRule events (BIG-IP 21)
+
+Request commands (`HTTP::uri`, `HTTP::path`, request `HTTP::header`) are read **once** in `HTTP_REQUEST` into `mu_log_req` / `mu_log_client`. Logs live in events, not in procs. Existing procs are invoked with `call`.
+
+| Event | Role |
+| --- | --- |
+| `HTTP_REQUEST` | Identity, cooling-off, rate, IDOR request track, pending AI apply, mitigation. Logs `MU-IDOR-ACT` only if mitigation returns 1. |
+| `HTTP_RESPONSE` | Score 401/403, IDOR response features, optional iRulesLX, then always `MU-IDOR … status=[HTTP::status]`. |
+| `CLIENT_CLOSED` | Fallback log when PRP Reject skipped `HTTP_RESPONSE` (api-protection VS has no LTM ACCESS profile). Uses saved request vars; `status=403`; no `HTTP::` / no scoring procs. |
+| `ASM_REQUEST_DONE` / `ASM_REQUEST_BLOCKING` | Optional WAF points (`ASM::violation` needs a WEBSECURITY profile on the VS). |
+
+`after` timers are cancelled when PRP closes TCP — do not use them for the deny log.
+
 ## Safety rules
 
 - Never claim a control that does nothing: High aspiration prefers rate-limit/block over JS-only  

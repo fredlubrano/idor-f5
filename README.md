@@ -55,7 +55,20 @@ python -m pytest -q
      --out irules/malicious_user.rendered.tcl
    ```
 
-3. Deploy with iControl REST (or paste the rendered iRule in TMUI):
+3. Wrap for `tmsh load sys config merge` (do not commit the wrap; it is generated):
+
+   ```bash
+   { printf 'ltm rule malicious_user {\n'
+     cat irules/malicious_user.rendered.tcl
+     printf '\n}\n'
+   } > irules/malicious_user.tmsh.conf
+   ```
+
+   On the BIG-IP: `tmsh load sys config merge file /var/tmp/malicious_user.tmsh.conf verify` then the same without `verify`. Re-attach the VS **without** dropping other iRules, e.g. `tmsh modify ltm virtual app_vs rules { other_rule malicious_user }`.
+
+   Procedures must be invoked with `call mu_…`, not `[mu_…]`. On BIG-IP 21, `HTTP::uri` / `HTTP::path` / request `HTTP::header` inside a proc **plus** an `HTTP_RESPONSE` event can fail VS attach (`01071911`). Keep those reads in `HTTP_REQUEST` and store `mu_log_req` / `mu_log_client`.
+
+4. Deploy with iControl REST (or paste the rendered iRule in TMUI):
 
    ```bash
    python scripts/deploy_rest.py --host https://bigip.lab --user admin \
@@ -64,7 +77,27 @@ python -m pytest -q
 
    Or omit `--irule` to auto-render then upload. Copy `.env.example` → `.env` for credentials (never commit `.env`).
 
-4. Optional AI: set `ai.enabled: true`, install the `iruleslx/ai_enrich` plugin, store `OPENAI_API_KEY` on the BIG-IP / env, allow egress HTTPS to `api.openai.com` (or Azure/OpenAI). Start with `ai.action: shadow`.
+5. Optional AI: set `ai.enabled: true`, install the `iruleslx/ai_enrich` plugin (Node **6.9.1** on BIG-IP 21), store `OPENAI_API_KEY` in a file on the box (not the process environment), allow egress HTTPS to `api.openai.com` (or Azure/OpenAI). Start with `ai.action: shadow`. Plugin name `/Common/ai_enrich`, extension `ai_enrich`.
+
+## LTM traces
+
+Prefix `MU-IDOR`, facility `local0.warn`. Isolate with:
+
+```bash
+grep MU-IDOR /var/log/ltm
+```
+
+| Line | When |
+| --- | --- |
+| `MU-IDOR client=… req="GET /api/v1/dossiers/1" path_kind=0\|1 score=… level=… status=… ai=-|confirm|dismiss|boost|fail-open` | Every request that still hits TMM **after** scoring (`HTTP_RESPONSE`). `path_kind=1` if the path matches an object regex (`^/api/.+/\d+$`, …). `ai=-` if LX was not called. |
+| `MU-IDOR-ACT client=… req="…" action=challenge\|block\|rate level=… score=…` | `HTTP_REQUEST` only when `mu_apply_mitigation` returns 1 |
+| `mu_ai fail-open: …` | iRulesLX / GPT error (unchanged, `log local0.`) |
+
+No JWT, cookie, or body in these lines — client IP + request line, same idea as a BOLA deny log.
+
+**API Protection PRP Reject** (profile type AP on the VS, no LTM ACCESS profile) **does not run `HTTP_RESPONSE`**. `ACCESS_*` events fail verify (`01071912`). The iRule logs that deny from `CLIENT_CLOSED` with `status=403` using values saved in `HTTP_REQUEST`. Score is **not** incremented on that path (no `HTTP::` from procs in `CLIENT_CLOSED`). A 401/403 that still reaches the backend **does** fire `HTTP_RESPONSE` and can raise the score.
+
+Low mitigation is a local JS challenge: HTTP **503** HTML `Checking your browser`, cookie `mu_chal_l`, then `location.reload()`. `curl` never sets the cookie, so it keeps getting `MU-IDOR-ACT`. Medium adds a 1.5 s delay; High rejects or 429.
 
 ## How scoring works
 
