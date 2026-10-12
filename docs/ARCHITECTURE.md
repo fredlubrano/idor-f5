@@ -26,7 +26,6 @@ Client
 | `scripts/deploy_rest.py` | iControl REST: upload iRule / LX, attach VS |
 | `iruleslx/ai_enrich/` | Node.js plugin: OpenAI chat completions |
 | `lib/scoring.py` | Pure-Python mirror for unit tests |
-| `as3/lab.json` | Optional AS3 lab attach sketch |
 | `docs/*` | Signals, aspiration, AI, WAF comparison |
 
 ## Session table (per user key)

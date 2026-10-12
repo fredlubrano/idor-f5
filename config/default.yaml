@@ -166,11 +166,7 @@ ai:
   privacy:
     hash_ids: true
     local_only_llm: false
-    # Point at ml/serve_stub.py or a HF Inference Endpoint / TGI that speaks /v1/classify
-    # or OpenAI-compatible chat/completions (same JSON contract as ai_enrich).
     local_endpoint: ""
-    # Example after training: fredlubrano/idor-aspiration-clf
-    hf_model_id: ""
 
   context:
     path_allowlist: true
@@ -204,5 +200,3 @@ deploy:
   partition: Common
   irule_name: malicious_user
   lx_plugin_name: ai_enrich
-  # virtual_server: /Common/vs_app
-  as3_enabled: false

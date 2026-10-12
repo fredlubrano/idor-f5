@@ -18,10 +18,8 @@ The decision engine runs **on the BIG-IP** (iRules + session tables + iRulesLX).
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | On-box data path, session table, threat lifecycle |
 | [docs/SIGNALS.md](docs/SIGNALS.md) | XC ↔ BIG-IP signal map + IDOR feature formulas |
 | [docs/ASPIRATION.md](docs/ASPIRATION.md) | Authenticated user dumping the DB via API — how we detect it |
-| [docs/AI.md](docs/AI.md) | gpt-4o-mini contract, fail-open, full option matrix |
-| [docs/HUGGINGFACE.md](docs/HUGGINGFACE.md) | Build a **custom HF model** for aspiration IDOR |
+| [docs/AI.md](docs/AI.md) | gpt-4o-mini contract, fail-open |
 | [docs/WAF.md](docs/WAF.md) | What ASM/WAF covers vs this behavioral layer |
-| [ml/README.md](ml/README.md) | Dataset synthesis, train (sklearn/HF), classify API stub |
 
 ## Layout
 
@@ -30,13 +28,11 @@ idor-f5 /
   config/default.yaml       # thresholds, paths, cooling-off, AI flags
   irules/malicious_user.tcl # scoring + IDOR counters + mitigation (templated)
   iruleslx/ai_enrich/       # OpenAI enrich plugin (Node.js)
-  as3/                      # optional VS + iRule attach (lab)
   scripts/render_irule.py   # inject YAML constants into the iRule
   scripts/deploy_rest.py    # iControl REST upload / attach
   lib/scoring.py            # pure Python mirror of scoring / IDOR features
-  tests/                    # unit tests against lib/
-  docs/                     # architecture, signals, aspiration, AI, HF, WAF
-  ml/                       # custom Hugging Face / sklearn aspiration classifier
+  tests/                    # unit tests
+  docs/                     # architecture, signals, aspiration, AI, WAF
 ```
 
 ## Quick start (lab)
