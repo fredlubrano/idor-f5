@@ -103,6 +103,19 @@ def test_aspiration_weighted(cfg: ScoringConfig):
     assert low < score
 
 
+def test_idor_thresholds_awarded_once_per_window(cfg: ScoringConfig):
+    st = UserState()
+    for i in range(1, 30):
+        record_object_request(st, f"/api/accounts/{i}", 200, content_length=10_000)
+    st = score_signals(st, cfg=cfg, now_ts=1_000)
+    first = st.score
+    assert "distinct_ids" in st.awarded_signals
+    assert "seq_ratio" in st.awarded_signals
+    assert "success_enum" in st.awarded_signals
+    st = score_signals(st, cfg=cfg, now_ts=1_001)
+    assert st.score == first
+
+
 def test_legitimate_low_volume_no_idor_points(cfg: ScoringConfig):
     st = UserState()
     for i in (10, 11, 12):

@@ -72,6 +72,16 @@ def test_ai_action_on_state(cfg: ScoringConfig):
     st = UserState(score=cfg.thr_low, level="low", ai_action="boost")
     st = score_signals(st, cfg=cfg, now_ts=5_000)
     assert st.level == "medium"
+    assert st.ai_applied is True
+
+
+def test_ai_boost_applied_once(cfg: ScoringConfig):
+    st = UserState(score=cfg.thr_low, level="low", ai_action="boost")
+    st = score_signals(st, cfg=cfg, now_ts=5_000)
+    assert st.level == "medium"
+    st = score_signals(st, cfg=cfg, now_ts=5_001)
+    assert st.level == "medium"
+    assert st.ai_applied is True
 
 
 def test_ambiguous_band(cfg: ScoringConfig):
@@ -84,3 +94,8 @@ def test_waf_and_rate_points(cfg: ScoringConfig):
     st = UserState()
     st = score_signals(st, cfg=cfg, waf_hit=True, rate_exceeded=True, now_ts=10)
     assert st.score == cfg.points_waf + cfg.points_rate
+    first = st.score
+    st = score_signals(st, cfg=cfg, waf_hit=True, rate_exceeded=True, now_ts=11)
+    assert st.score == first
+    assert "waf_hit" in st.awarded_signals
+    assert "rate_limit" in st.awarded_signals

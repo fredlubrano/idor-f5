@@ -12,7 +12,7 @@ Client
          ├─ classic signals (401, 403, ASM, rate)
          ├─ IDOR / aspiration counters (session table)
          ├─ score → Low / Medium / High + cooling-off
-         ├─ optional gate → iRulesLX ai_enrich → gpt-4o-mini
+         ├─ optional gate → iRulesLX ai_enrich → gemini-2.5-flash
          └─ mitigate: JS challenge | harder challenge | rate-limit / reject
 ```
 
@@ -24,7 +24,7 @@ Client
 | `irules/malicious_user.tcl` | Template iRule (`{{PLACEHOLDERS}}`) |
 | `scripts/render_irule.py` | YAML → rendered Tcl constants |
 | `scripts/deploy_rest.py` | iControl REST: upload iRule / LX, attach VS |
-| `iruleslx/ai_enrich/` | Node.js plugin: OpenAI chat completions |
+| `iruleslx/ai_enrich/` | Node.js 6 plugin: Google Gemini generateContent |
 | `lib/scoring.py` | Pure-Python mirror for unit tests |
 | `docs/*` | Signals, aspiration, AI, WAF comparison |
 
@@ -50,8 +50,8 @@ Request commands (`HTTP::uri`, `HTTP::path`, request `HTTP::header`) are read **
 
 | Event | Role |
 | --- | --- |
-| `HTTP_REQUEST` | Identity, cooling-off, rate, IDOR request track, pending AI apply, mitigation. Logs `MU-IDOR-ACT` only if mitigation returns 1. |
-| `HTTP_RESPONSE` | Score 401/403, IDOR response features, optional iRulesLX, then always `MU-IDOR … status=[HTTP::status]`. |
+| `HTTP_REQUEST` | Identity (`$mu_user_key` once), cooling-off, rate latch, IDOR request track, mitigation. Logs `MU-IDOR-ACT` only if mitigation is not `none`. |
+| `HTTP_RESPONSE` | Score 401/403, IDOR response features (`mu_award_once`), optional iRulesLX, apply AI **once**, then always `MU-IDOR … status=[HTTP::status]`. |
 | `CLIENT_CLOSED` | Fallback log when PRP Reject skipped `HTTP_RESPONSE` (api-protection VS has no LTM ACCESS profile). Uses saved request vars; `status=403`; no `HTTP::` / no scoring procs. |
 | `ASM_REQUEST_DONE` / `ASM_REQUEST_BLOCKING` | Optional WAF points (`ASM::violation` needs a WEBSECURITY profile on the VS). |
 

@@ -51,6 +51,6 @@ ASM signatures, login brute-force, coarse rate limits, Bot Defense, and OpenAPI 
 
 ## Related
 
-- `docs/AI.md` — when gpt-4o-mini confirms / dismisses / boosts IDOR hypotheses
+- `docs/AI.md` — when gemini-2.5-flash confirms / dismisses / boosts IDOR hypotheses
 - `config/default.yaml` — all thresholds and flags
 - `lib/scoring.py` — pure-Python mirror used by unit tests

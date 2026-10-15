@@ -21,14 +21,14 @@
 - **Ownership / BOLA** — application logic, not a WAF model  
 - **Aspiration in 200 OK** — needs **behavioral baseline per auth identity**  
 - **Malicious User (XC)** — F5 Distributed Cloud behavioral product; **no 1:1 declarative ASM policy** (same reason `virtual-patch-copilot` declines `malicious_user` on BIG-IP)  
-- **gpt-4o-mini judge** — not native to ASM; needs iRulesLX / external call  
+- **gemini-2.5-flash judge** — not native to ASM; needs iRulesLX / external call  
 
 ## How the pieces fit
 
 ```text
 ASM / WAF  ──signals──►  Behavioral score (per jwt_sub)
                               │
-                              ├── gpt-4o-mini enrich (optional)
+                              ├── gemini-2.5-flash enrich (optional)
                               └── Throttle / challenge / temp block
 ```
 

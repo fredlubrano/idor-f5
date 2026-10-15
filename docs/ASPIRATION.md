@@ -45,7 +45,7 @@ Sliding window per user (e.g. 1–5 min + optional daily cap)
 aspiration_score → Low / Medium / High
         │
         ├─ below gate → mitigate deterministically
-        └─ ambiguous / sample → gpt-4o-mini confirm|dismiss|boost
+        └─ ambiguous / sample → gemini-2.5-flash confirm|dismiss|boost
 ```
 
 ### Deterministic signals (iRule)
@@ -87,7 +87,7 @@ IP-only keys collapse many users behind NAT and miss per-account aspiration.
 
 ## AI role on this case
 
-`gpt-4o-mini` receives **aggregated features only** (no bodies, no tokens). Prompt intent:
+`gemini-2.5-flash` receives **aggregated features only** (no bodies, no tokens). Prompt intent:
 
 > Authenticated account; N distinct objects in T minutes; sequential ratio R; bytes B; template focus F — data aspiration vs legitimate sync?
 

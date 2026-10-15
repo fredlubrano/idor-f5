@@ -1,11 +1,14 @@
 {
   "name": "ai_enrich",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "iRulesLX plugin: gpt-4o-mini IDOR enrichment (confirm/dismiss/boost)",
+  "description": "iRulesLX plugin: Google Gemini IDOR enrichment (confirm/dismiss/boost)",
   "main": "index.js",
   "engines": {
     "node": ">=6"
+  },
+  "scripts": {
+    "test": "node test_gemini.js"
   },
   "dependencies": {}
 }

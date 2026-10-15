@@ -41,3 +41,9 @@ def test_render_fills_placeholders():
     # Logs live in events, not in procs (HTTP::uri in a proc + HTTP_RESPONSE fails attach).
     before_req = out.split("when HTTP_REQUEST", 1)[0]
     assert "MU-IDOR" not in before_req
+    assert "proc mu_award_once" in out
+    assert "mu:ai_last_action:" in out
+    assert "ai_pending_action" not in out
+    assert "b64decode" not in out
+    assert "X-Authenticated-Sub" in out
+    assert "$mu_user_key" in out.split("when HTTP_RESPONSE", 1)[1]

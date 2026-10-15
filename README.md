@@ -5,7 +5,7 @@ Reproduce [F5 Distributed Cloud Malicious User Detection](https://docs.cloud.f5.
 - Abuse signals → threat score **Low / Medium / High**
 - **Cooling-off** that decays the level over idle time (default 20 minutes, XC-like)
 - Progressive mitigation (JS challenge → harder challenge → temporary block / rate-limit)
-- Optional **gpt-4o-mini** enrichment via iRulesLX for ambiguous cases
+- Optional **gemini-2.5-flash** enrichment via iRulesLX for ambiguous cases
 
 The decision engine runs **on the BIG-IP** (iRules + session tables + iRulesLX). There is no external Python sidecar.
 
@@ -18,7 +18,7 @@ The decision engine runs **on the BIG-IP** (iRules + session tables + iRulesLX).
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | On-box data path, session table, threat lifecycle |
 | [docs/SIGNALS.md](docs/SIGNALS.md) | XC ↔ BIG-IP signal map + IDOR feature formulas |
 | [docs/ASPIRATION.md](docs/ASPIRATION.md) | Authenticated user dumping the DB via API — how we detect it |
-| [docs/AI.md](docs/AI.md) | gpt-4o-mini contract, fail-open |
+| [docs/AI.md](docs/AI.md) | gemini-2.5-flash contract, fail-open, circuit breaker |
 | [docs/WAF.md](docs/WAF.md) | What ASM/WAF covers vs this behavioral layer |
 
 ## Layout
@@ -27,7 +27,7 @@ The decision engine runs **on the BIG-IP** (iRules + session tables + iRulesLX).
 idor-f5 /
   config/default.yaml       # thresholds, paths, cooling-off, AI flags
   irules/malicious_user.tcl # scoring + IDOR counters + mitigation (templated)
-  iruleslx/ai_enrich/       # OpenAI enrich plugin (Node.js)
+  iruleslx/ai_enrich/       # Google Gemini enrich plugin (Node.js 6)
   scripts/render_irule.py   # inject YAML constants into the iRule
   scripts/deploy_rest.py    # iControl REST upload / attach
   lib/scoring.py            # pure Python mirror of scoring / IDOR features
@@ -73,7 +73,7 @@ python -m pytest -q
 
    Or omit `--irule` to auto-render then upload. Copy `.env.example` → `.env` for credentials (never commit `.env`).
 
-5. Optional AI: set `ai.enabled: true`, install the `iruleslx/ai_enrich` plugin (Node **6.9.1** on BIG-IP 21), store `OPENAI_API_KEY` in a file on the box (not the process environment), allow egress HTTPS to `api.openai.com` (or Azure/OpenAI). Start with `ai.action: shadow`. Plugin name `/Common/ai_enrich`, extension `ai_enrich`.
+5. Optional AI: set `ai.enabled: true`, install the `iruleslx/ai_enrich` plugin (Node **6.9.1** on BIG-IP 21), store the Gemini key in `/config/gemini_api_key` (`chmod 600`, **not** `/var/tmp` — tmpfs wiped on reboot). ILX has no `env-vars` tmsh property; use `/config/startup` to copy the key back to `/var/tmp` at boot if the published plugin still reads that path. Allow egress HTTPS to `generativelanguage.googleapis.com`. Lab default is `ai.action: shadow` and `mitigation.shadow: true`. Plugin name `/Common/ai_enrich`, extension `ai_enrich`. Never commit the API key.
 
 ## LTM traces
 
@@ -87,7 +87,7 @@ grep MU-IDOR /var/log/ltm
 | --- | --- |
 | `MU-IDOR client=… req="GET /api/v1/dossiers/1" path_kind=0\|1 score=… level=… status=… ai=-|confirm|dismiss|boost|fail-open` | Every request that still hits TMM **after** scoring (`HTTP_RESPONSE`). `path_kind=1` if the path matches an object regex (`^/api/.+/\d+$`, …). `ai=-` if LX was not called. |
 | `MU-IDOR-ACT client=… req="…" action=challenge\|block\|rate level=… score=…` | `HTTP_REQUEST` only when `mu_apply_mitigation` returns 1 |
-| `mu_ai fail-open: …` | iRulesLX / GPT error (unchanged, `log local0.`) |
+| `mu_ai fail-open: …` | iRulesLX / Gemini error (unchanged, `log local0.`) |
 
 No JWT, cookie, or body in these lines — client IP + request line, same idea as a BOLA deny log.
 
@@ -101,10 +101,12 @@ Low mitigation is a local JS challenge: HTTP **503** HTML `Checking your browser
 | --- | --- |
 | **iRule Tcl** | Counts signals, updates per-user session-table state, applies mitigation synchronously |
 | **session table** | `score`, threat `level`, cooling-off timers, IDOR counters, AI flags |
-| **iRulesLX** | Outbound GPT calls only when the AI gate opens (not on every request) |
+| **iRulesLX** | Outbound Gemini calls only when the AI gate opens (not on every request) |
 | **ASM / LTM** | Optional feeds: WAF violations, denies, HTTP status |
 
-**User key:** client IP by default. For authenticated IDOR aspiration set `identity.mode: jwt_sub` (or cookie/header) so counters are **per account**, not per NAT IP.
+**User key:** computed **once** in `HTTP_REQUEST` (`$mu_user_key`) and reused in `HTTP_RESPONSE` / `CLIENT_CLOSED`. Default is client IP. For authenticated IDOR aspiration set `identity.mode: jwt_sub` and pass an already-verified subject (`X-Authenticated-Sub` from APM / gateway) so counters are **per account**, not per NAT IP. The iRule does **not** decode unsigned JWT payloads.
+
+IDOR thresholds (`distinct_ids`, `seq_ratio`, `forbid_ratio`, `success_enum`, `resp_bytes`, `rate_limit`) add points **once per sliding window** via `mu_award_once` (`mu:latch:${signal}:${user_key}`).
 
 ### Classic signals (XC-like)
 
@@ -138,7 +140,7 @@ Set `mitigation.shadow: true` to log decisions without challenging or blocking.
 
 ## AI (optional)
 
-`gpt-4o-mini` is **not** on the critical path. Gate opens on ambiguous score (or sampling). Returns `confirm | dismiss | boost` plus pattern hints (`data_aspiration`, `sequential_enum`, …). Fail-open on timeout/error.
+`gemini-2.5-flash` is **not** on the critical path. Gate opens on ambiguous score (or sampling). Returns `confirm | dismiss | boost` plus pattern hints (`data_aspiration`, `sequential_enum`, …). Fail-open on timeout/error; a local circuit breaker opens after 5 consecutive 429/5xx/timeouts.
 
 Full option matrix (shadow, jwt_sub, dual_judge, local LLM, …): [docs/AI.md](docs/AI.md).
 
@@ -146,7 +148,7 @@ Full option matrix (shadow, jwt_sub, dual_judge, local LLM, …): [docs/AI.md](d
 
 - No tenant-wide ML or native IP reputation in v1
 - Challenges are local (no reCAPTCHA yet)
-- GPT needs BIG-IP egress; keep AI gated to protect TPS
+- Gemini needs BIG-IP egress; keep AI gated to protect TPS
 - The stack **detects / slows enumeration**; it does **not** fix application ownership (BOLA) bugs
 
 ## License / scope

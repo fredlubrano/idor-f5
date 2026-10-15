@@ -7,7 +7,7 @@ and config/default.yaml.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Set, Tuple
 
 
 LEVELS = ("none", "low", "medium", "high")
@@ -212,6 +212,15 @@ class UserState:
     templates: List[str] = field(default_factory=list)
     bytes_sum: int = 0
     ai_action: Optional[str] = None
+    awarded_signals: Set[str] = field(default_factory=set)
+    ai_applied: bool = False
+
+    def _award_once(self, signal_name: str, pts: int) -> int:
+        """Mirror iRule mu_award_once: each IDOR/WAF/rate latch fires once per window."""
+        if pts <= 0 or signal_name in self.awarded_signals:
+            return 0
+        self.awarded_signals.add(signal_name)
+        return pts
 
 
 def score_signals(
@@ -238,11 +247,11 @@ def score_signals(
     if failed_login:
         delta += cfg.points_failed_login
     if waf_hit:
-        delta += cfg.points_waf
+        delta += state._award_once("waf_hit", cfg.points_waf)
     if rate_exceeded:
-        delta += cfg.points_rate
+        delta += state._award_once("rate_limit", cfg.points_rate)
 
-    # IDOR derived features from collected window
+    # IDOR derived features from collected window (latched once per window)
     distinct = len(set(state.object_ids))
     seq = sequential_ratio(state.object_ids)
     fr = forbid_ratio(state.statuses)
@@ -250,23 +259,23 @@ def score_signals(
     success_n = sum(1 for s in state.statuses if s == 200)
 
     if distinct >= cfg.distinct_ids_threshold:
-        delta += cfg.points_distinct
+        delta += state._award_once("distinct_ids", cfg.points_distinct)
     # Match iRule: need enough samples before sequential/focus fire
     if len(state.object_ids) >= 5 and seq >= cfg.sequential_ratio_threshold:
-        delta += cfg.points_sequential
+        delta += state._award_once("seq_ratio", cfg.points_sequential)
     if len(state.statuses) >= 10 and fr >= cfg.forbid_ratio_threshold:
-        delta += cfg.points_forbid_ratio
+        delta += state._award_once("forbid_ratio", cfg.points_forbid_ratio)
     ok_ratio = (success_n / len(state.statuses)) if state.statuses else 0.0
     if (
         success_n >= cfg.success_enum_threshold
         and distinct >= max(1, cfg.distinct_ids_threshold // 2)
         and ok_ratio >= cfg.success_min_200_ratio
     ):
-        delta += cfg.points_success_enum
+        delta += state._award_once("success_enum", cfg.points_success_enum)
     if len(state.templates) >= 10 and focus >= cfg.template_focus_threshold:
-        delta += cfg.points_template_focus
+        delta += state._award_once("template_focus", cfg.points_template_focus)
     if state.bytes_sum >= cfg.response_bytes_threshold:
-        delta += cfg.points_bytes
+        delta += state._award_once("resp_bytes", cfg.points_bytes)
 
     asp = aspiration_score(
         distinct_ids=distinct,
@@ -281,14 +290,16 @@ def score_signals(
         and delta == 0
         and distinct >= cfg.success_enum_threshold
     ):
-        delta += cfg.points_success_enum
+        delta += state._award_once("success_enum", cfg.points_success_enum)
 
     if delta > 0:
         state.score = min(200, max(0, state.score + delta))
         state.last_abuse_ts = now
         state.level = level_from_score(state.score, cfg)
 
-    state.level = apply_ai_action(state.level, state.ai_action)
+    if state.ai_action and not state.ai_applied:
+        state.level = apply_ai_action(state.level, state.ai_action)
+        state.ai_applied = True
     return state
 
 

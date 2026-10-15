@@ -1,6 +1,6 @@
-﻿# BIG-IP Malicious User — default lab config
+# BIG-IP Malicious User — default lab config
 # Consumed by scripts/render_irule.py (template placeholders), lib/scoring.py, iRulesLX.
-# Secrets (OpenAI key, BIG-IP credentials) stay out of this file — use .env / BIG-IP secrets.
+# Secrets (Google AI key, BIG-IP credentials) stay out of this file — use .env / BIG-IP secrets.
 
 logging:
   enabled: true
@@ -11,7 +11,6 @@ session:
   timeout_seconds: 3600
 
 # --- Identity -----------------------------------------------------------------
-# v1 default: client IP. Prefer jwt_sub for authenticated IDOR / aspiration cases.
 identity:
   mode: ip                 # ip | jwt_sub | cookie_header
   jwt:
@@ -49,7 +48,6 @@ signals:
     threshold_requests: 120
     points: 8
 
-  # Placeholders — not implemented in v1
   ip_reputation:
     enabled: false
   bot_defense:
@@ -66,7 +64,6 @@ idor:
     - /api/accounts/{id}
     - /api/users/{id}
     - /api/resources/{id}
-  # Regex form used by render_irule when present; else templates are converted
   object_path_patterns:
     - ^/api/accounts/[^/]+$
     - ^/api/users/[^/]+$
@@ -74,7 +71,6 @@ idor:
     - ^/api/.+/\d+$
     - ^/api/.+/[0-9a-fA-F-]{8,}$
 
-  # Flat thresholds (used by lib/scoring.py and render_irule)
   distinct_ids_threshold: 25
   distinct_ids_high: 40
   sequential_ratio_threshold: 0.6
@@ -120,12 +116,12 @@ scoring:
     medium: 60
     high: 90
   max_score: 200
-  cooling_off_minutes: 20          # XC-like; High→Medium→Low→None per idle period
+  cooling_off_minutes: 20
   cooling_off_decay_points: 15
 
 # --- Mitigation ---------------------------------------------------------------
 mitigation:
-  shadow: false                    # true = log only, no challenge/block
+  shadow: true                     # true = log only, no challenge/block
   low: js_challenge
   medium: hard_challenge
   high: temp_block
@@ -145,12 +141,13 @@ mitigation:
     requests_per_minute: 10
     object_requests_per_minute: 30
 
-# --- gpt-4o-mini enrich (iRulesLX) — gated, fail-open -------------------------
+# --- Google AI (Gemini) enrich (iRulesLX) — gated, fail-open ------------------
 ai:
   enabled: true
-  model: gpt-4o-mini
+  provider: google
+  model: gemini-2.5-flash
   mode: enrich                     # enrich | dual_judge
-  endpoint: https://api.openai.com/v1/chat/completions
+  endpoint: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
   timeout_ms: 800
   fail_open: true
   gate:
@@ -159,9 +156,8 @@ ai:
     sample_percent: 5
     skip_if_high: true
 
-  # Preferred identity for aspiration scenario (may override identity.mode in LX path)
   identity: jwt_sub
-  action: enforce                  # enforce | shadow
+  action: shadow                   # enforce | shadow
 
   privacy:
     hash_ids: true
@@ -184,11 +180,10 @@ ai:
     feedback: false
 
   options:
-    # MVP implements: enrich + shadow + hash_ids
     suggest_asm: false
     dual_judge: false
 
-# --- Optional WAF-assisted hardening (not a substitute) -----------------------
+# --- Optional WAF-assisted hardening ------------------------------------------
 waf_assisted:
   enabled: false
   notes: >
